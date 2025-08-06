@@ -122,6 +122,6 @@ export async function main(ns) {
         ns.tprint("Network RAM:     " + ns.nFormat(totalUsedRam * 1e9, '0.00b') + " / " + ns.nFormat(totalMaxRam * 1e9, '0.00b') + " (" + (totalMaxRam > 0 ? Math.round((totalUsedRam / totalMaxRam) * 100) : 0) + "%)");
         ns.tprint("=======================================");
         
-        await ns.sleep(10000);
+        await ns.sleep(30000);
     }
 }
