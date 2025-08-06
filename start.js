@@ -1,3 +1,7 @@
+    // The script will first launch the stock trader, then begin its main hacking loop. 
+    // The unified report will appear in your terminal and update every 10 seconds.
+
+
 /** @param {NS} ns **/
 export async function main(ns) {
     // --- Script Configuration ---
