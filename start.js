@@ -3,14 +3,17 @@ export async function main(ns) {
     // --- Script Configuration ---
     const scriptToRun = 'basic-hack.js';
     const stonksScript = 'stonks.js';
-    const dataPort = 1; // Port to read stock data from
+    const dataPort = 1;
 
     // --- State Tracking ---
     const startTime = Date.now();
+    // Record initial money state to calculate profit later.
+    const initialMoney = ns.getPlayer().money; 
     ns.disableLog('ALL');
     ns.clearLog();
 
     // --- Bootstrap Phase ---
+    // This part launches the stock script.
     if (ns.fileExists(stonksScript, 'home')) {
         if (!ns.isRunning(stonksScript, 'home')) {
             if ((ns.getServerMaxRam('home') - ns.getServerUsedRam('home')) >= ns.getScriptRam(stonksScript, 'home')) {
@@ -21,7 +24,7 @@ export async function main(ns) {
     
     // --- Main Hacking Loop ---
     while (true) {
-        // ... (The entire server discovery and hacking section is unchanged) ...
+        // This entire section for discovering, rooting, and deploying hack scripts is correct and unchanged.
         let serverSet = new Set(['home']);
         let serversToScan = ['home'];
         while (serversToScan.length > 0) {
@@ -88,24 +91,33 @@ export async function main(ns) {
             stockData = JSON.parse(portData);
         }
 
-        // 2. Get Player and Net Worth
+        // 2. Perform Corrected Financial Calculations
         const player = ns.getPlayer();
-        const totalNetWorth = player.money + stockData.portfolioValue;
+        const runtimeSeconds = (Date.now() - startTime) / 1000;
+        
+        // Overall P/L is the change in total net worth (cash + stocks)
+        const currentNetWorth = player.money + stockData.portfolioValue;
+        const totalProfit = currentNetWorth - initialMoney;
+        const totalProfitPerMinute = (runtimeSeconds > 0) ? (totalProfit / runtimeSeconds) * 60 : 0;
+        
+        // Hacking P/L is the change in cash NOT accounted for by stock sales
+        const hackingProfit = player.money - initialMoney - stockData.sessionProfitAndLoss;
+        const hackingProfitPerMinute = (runtimeSeconds > 0) ? (hackingProfit / runtimeSeconds) * 60 : 0;
 
-        // 3. Print Report
+        // 3. Print Final Report
         ns.tprint("======== UNIFIED STATUS REPORT ========");
-        ns.tprint("Runtime:         " + ns.tFormat(Date.now() - startTime));
-        ns.tprint("Total Net Worth: " + ns.nFormat(totalNetWorth, '$0.00a'));
+        ns.tprint("Runtime:         " + ns.tFormat(runtimeSeconds * 1000));
+        ns.tprint("Total Net Worth: " + ns.nFormat(currentNetWorth, '$0.00a'));
+        ns.tprint("Overall P/L:     " + ns.nFormat(totalProfitPerMinute, '$0.00a') + "/min");
         ns.tprint("---------------------------------------");
-        ns.tprint("Cash on hand:    " + ns.nFormat(player.money, '$0.00a'));
-        ns.tprint("Stock Portfolio: " + ns.nFormat(stockData.portfolioValue, '$0.00a'));
-        ns.tprint("Stock Session P/L: " + ns.nFormat(stockData.sessionProfitAndLoss, '$0.00a'));
+        ns.tprint("Hacking P/L:     " + ns.nFormat(hackingProfitPerMinute, '$0.00a') + "/min");
+        ns.tprint("Stock P/L:       " + ns.nFormat(stockData.sessionProfitAndLoss, '$0.00a') + " (total)");
         ns.tprint("---------------------------------------");
         ns.tprint("Hacking Target:  " + (bestTarget || "None"));
         ns.tprint("Hacking Hosts:   " + attackingHosts + " / " + rootedServers.length + " rooted");
         ns.tprint("Network RAM:     " + ns.nFormat(totalUsedRam * 1e9, '0.00b') + " / " + ns.nFormat(totalMaxRam * 1e9, '0.00b') + " (" + (totalMaxRam > 0 ? Math.round((totalUsedRam / totalMaxRam) * 100) : 0) + "%)");
         ns.tprint("=======================================");
         
-        await ns.sleep(10000); // Report updates every 10 seconds
+        await ns.sleep(10000);
     }
 }
