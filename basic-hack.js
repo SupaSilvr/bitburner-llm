@@ -1,13 +1,16 @@
 /** @param {NS} ns **/
 export async function main(ns) {
-    var target = ns.args[0];
-    var moneyThresh = ns.getServerMaxMoney(target) * 0.75;
-    var securityThresh = ns.getServerMinSecurityLevel(target) + 5;
+    const target = ns.args[0];
+    const moneyThresh = ns.getServerMaxMoney(target) * 0.90;
+    const securityThresh = ns.getServerMinSecurityLevel(target) + 3;
 
     while (true) {
-        if (ns.getServerSecurityLevel(target) > securityThresh) {
+        const securityLevel = ns.getServerSecurityLevel(target);
+        const moneyAvailable = ns.getServerMoneyAvailable(target);
+
+        if (securityLevel > securityThresh) {
             await ns.weaken(target);
-        } else if (ns.getServerMoneyAvailable(target) < moneyThresh) {
+        } else if (moneyAvailable < moneyThresh) {
             await ns.grow(target);
         } else {
             await ns.hack(target);
