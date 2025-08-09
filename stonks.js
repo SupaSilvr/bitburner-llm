@@ -1,7 +1,7 @@
 /** @param {NS} ns **/
 export async function main(ns) {
     // --- Configuration ---
-    const buyThreshold = 0.6;
+    const buyThreshold = 0.6; // This now refers to the 'score', not just forecast
     const sellThreshold = 0.5;
     const reserveCash = 1_000_000;
     const commission = 100_000;
@@ -19,17 +19,22 @@ export async function main(ns) {
         const allSymbols = ns.stock.getSymbols();
         let portfolioValue = 0;
 
-        // Sell phase
+        // --- Sell Phase ---
+        // Sells stocks that are underperforming and have low volatility.
         for (const sym of allSymbols) {
             const [shares, avgPrice] = ns.stock.getPosition(sym);
             if (shares > 0) {
                 const bidPrice = ns.stock.getBidPrice(sym);
                 portfolioValue += shares * bidPrice;
                 
-                if (ns.stock.getForecast(sym) < sellThreshold) {
+                // NEW: Added a volatility check to avoid selling stocks that might rebound.
+                const forecast = ns.stock.getForecast(sym);
+                const volatility = ns.stock.getVolatility(sym);
+
+                if (forecast < sellThreshold && volatility < 0.05) { // Check for low forecast and low volatility
                     const salePrice = ns.stock.sellStock(sym, shares);
                     if (salePrice > 0) {
-                        const saleGain = shares * (salePrice - avgPrice) - (2 * commission);
+                        const saleGain = shares * (salePrice - avgPrice) - commission; // Only one commission on a sale
                         sessionProfitAndLoss += saleGain;
                         ns.print(`SELL: Sold ${sym} for a profit of ${ns.nFormat(saleGain, '$0.0a')}`);
                     }
@@ -37,22 +42,30 @@ export async function main(ns) {
             }
         }
 
-        // Buy phase
+        // --- Buy Phase ---
+        // Finds the best stock to buy based on a score combining forecast and volatility.
         let bestStock = '';
-        let bestForecast = 0;
+        let bestScore = 0;
         for (const sym of allSymbols) {
             const forecast = ns.stock.getForecast(sym);
-            if (forecast > bestForecast) {
-                bestForecast = forecast;
+            const volatility = ns.stock.getVolatility(sym);
+            // NEW: Scoring system to balance high forecast with low volatility for safer bets.
+            const score = forecast * (1 - volatility);
+
+            if (score > bestScore) {
+                bestScore = score;
                 bestStock = sym;
             }
         }
         
-        if (bestForecast > buyThreshold) {
+        // NEW: Buys the stock with the best score if it's above the configured threshold.
+        if (bestScore > buyThreshold) {
             let cashToSpend = ns.getPlayer().money - reserveCash;
             if (cashToSpend > commission) {
                 const stockPrice = ns.stock.getAskPrice(bestStock);
-                const sharesToBuy = Math.min(Math.floor((cashToSpend - commission) / stockPrice), ns.stock.getMaxShares(bestStock) - ns.stock.getPosition(bestStock)[0]);
+                const maxSharesToBuy = ns.stock.getMaxShares(bestStock) - ns.stock.getPosition(bestStock)[0];
+                const sharesToBuy = Math.min(Math.floor((cashToSpend - commission) / stockPrice), maxSharesToBuy);
+
                 if (sharesToBuy > 0) {
                     ns.stock.buyStock(bestStock, sharesToBuy);
                 }
