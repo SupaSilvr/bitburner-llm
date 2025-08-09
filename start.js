@@ -1,50 +1,47 @@
-    // The script will first launch the stock trader, then begin its main hacking loop. 
-    // The unified report will appear in your terminal and update every 10 seconds.
-
-
 /** @param {NS} ns **/
 export async function main(ns) {
     // --- Script Configuration ---
     const scriptToRun = 'basic-hack.js';
     const stonksScript = 'stonks.js';
     const dataPort = 1;
+    const ramToPurchase = 128; 
 
     // --- State Tracking ---
     const startTime = Date.now();
-    // Record initial money state to calculate profit later.
     const initialMoney = ns.getPlayer().money; 
     ns.disableLog('ALL');
     ns.clearLog();
 
     // --- Bootstrap Phase ---
-    // This part launches the stock script.
-    if (ns.fileExists(stonksScript, 'home')) {
-        if (!ns.isRunning(stonksScript, 'home')) {
-            if ((ns.getServerMaxRam('home') - ns.getServerUsedRam('home')) >= ns.getScriptRam(stonksScript, 'home')) {
-                ns.exec(stonksScript, 'home', 1);
-            }
+    if (ns.fileExists(stonksScript, 'home') && !ns.isRunning(stonksScript, 'home')) {
+        if ((ns.getServerMaxRam('home') - ns.getServerUsedRam('home')) >= ns.getScriptRam(stonksScript, 'home')) {
+            ns.exec(stonksScript, 'home', 1);
         }
     }
     
-    // --- Main Hacking Loop ---
+    // --- Main Loop ---
     while (true) {
-        // This entire section for discovering, rooting, and deploying hack scripts is correct and unchanged.
+        // NEW: This is a more robust check for Singularity API access that won't crash.
+        const hasSingularity = ns.singularity && typeof ns.singularity.purchaseServer === 'function';
+
+        // --- Server Discovery & Rooting ---
         let serverSet = new Set(['home']);
         let serversToScan = ['home'];
         while (serversToScan.length > 0) {
             let currentServer = serversToScan.shift();
-            let neighbors = ns.scan(currentServer);
-            for (let i = 0; i < neighbors.length; i++) {
-                if (!serverSet.has(neighbors[i])) {
-                    serverSet.add(neighbors[i]);
-                    serversToScan.push(neighbors[i]);
+            for (const neighbor of ns.scan(currentServer)) {
+                if (!serverSet.has(neighbor)) {
+                    serverSet.add(neighbor);
+                    serversToScan.push(neighbor);
                 }
             }
         }
+        for (const pserv of ns.getPurchasedServers()) {
+            serverSet.add(pserv);
+        }
         let allServers = Array.from(serverSet);
 
-        for (let i = 0; i < allServers.length; i++) {
-            let server = allServers[i];
+        for (const server of allServers) {
             if (ns.hasRootAccess(server) || ns.getHackingLevel() < ns.getServerRequiredHackingLevel(server)) continue;
             let openPorts = 0;
             if (ns.fileExists("BruteSSH.exe", "home")) { ns.brutessh(server); openPorts++; }
@@ -55,21 +52,69 @@ export async function main(ns) {
             if (ns.getServerNumPortsRequired(server) <= openPorts) ns.nuke(server);
         }
 
-        let rootedServers = allServers.filter(s => ns.hasRootAccess(s));
-        
-        let bestTarget = '';
-        let maxScore = 0;
-        for (let i = 0; i < rootedServers.length; i++) {
-            let server = rootedServers[i];
-            let serverMaxMoney = ns.getServerMaxMoney(server);
-            if (serverMaxMoney === 0) continue;
-            let score = serverMaxMoney / ns.getServerMinSecurityLevel(server);
-            if (score > maxScore) { maxScore = score; bestTarget = server; }
+        const rootedServers = allServers.filter(s => ns.hasRootAccess(s));
+
+        // --- All Singularity-dependent actions are now inside this block ---
+        if (hasSingularity) {
+            // --- Server Purchasing ---
+            const serverLimit = ns.getPurchasedServerLimit();
+            const purchasedServers = ns.getPurchasedServers();
+            if (purchasedServers.length < serverLimit) {
+                const cost = ns.getPurchasedServerCost(ramToPurchase);
+                if (ns.getPlayer().money > cost) {
+                    const hostname = `pserv-${purchasedServers.length}`;
+                    if (ns.singularity.purchaseServer(hostname, ramToPurchase)) {
+                        ns.tprint(`✅ Purchased new server: ${hostname} with ${ramToPurchase}GB RAM.`);
+                    }
+                }
+            }
+            for (const server of purchasedServers) {
+                if (ns.getServerMaxRam(server) < ramToPurchase) {
+                    const cost = ns.getPurchasedServerCost(ramToPurchase);
+                    if (ns.getPlayer().money > cost) {
+                        if (ns.singularity.deleteServer(server) && ns.singularity.purchaseServer(server, ramToPurchase)) {
+                            ns.tprint(`✅ Upgraded server ${server} to ${ramToPurchase}GB RAM.`);
+                        }
+                    }
+                }
+            }
+
+            // --- Automatic Backdoor Installation ---
+            for (const server of rootedServers) {
+                const serverInfo = ns.getServer(server);
+                if (!serverInfo.backdoorInstalled && server !== 'home') {
+                    ns.tprint(`INFO: Attempting to install backdoor on ${server}...`);
+                    // To install a backdoor, you first have to connect to the server.
+                    const path = [server];
+                    let current = server;
+                    while(current !== 'home'){
+                        const parent = ns.scan(current)[0];
+                        path.unshift(parent);
+                        current = parent;
+                    }
+                    path.forEach(p => ns.singularity.connect(p));
+                    await ns.singularity.installBackdoor();
+                    ns.singularity.connect('home'); // Go back home
+                    ns.tprint(`✅ Backdoor installed on ${server}.`);
+                }
+            }
         }
 
+        // --- Target Selection ---
+        let bestTarget = '';
+        let maxScore = 0;
+        for (const server of rootedServers) {
+            if (ns.getServerMaxMoney(server) === 0) continue;
+            const score = ns.getServerMaxMoney(server) / (ns.getWeakenTime(server) + ns.getGrowTime(server) + ns.getHackTime(server));
+            if (score > maxScore) {
+                maxScore = score;
+                bestTarget = server;
+            }
+        }
+
+        // --- Script Deployment ---
         let totalMaxRam = 0, totalUsedRam = 0, attackingHosts = 0;
-        for (let i = 0; i < rootedServers.length; i++) {
-            let host = rootedServers[i];
+        for (const host of rootedServers) {
             let maxRam = ns.getServerMaxRam(host), usedRam = ns.getServerUsedRam(host);
             totalMaxRam += maxRam;
             totalUsedRam += usedRam;
@@ -87,34 +132,22 @@ export async function main(ns) {
 
         // --- UNIFIED REPORTING SECTION ---
         ns.clearLog();
-
-        // 1. Get Stock Data from Port
         let stockData = { portfolioValue: 0, sessionProfitAndLoss: 0 };
         const portData = ns.peek(dataPort);
-        if (portData !== "NULL PORT DATA") {
-            stockData = JSON.parse(portData);
-        }
+        if (portData !== "NULL PORT DATA") stockData = JSON.parse(portData);
 
-        // 2. Perform Corrected Financial Calculations
         const player = ns.getPlayer();
         const runtimeSeconds = (Date.now() - startTime) / 1000;
-        
-        // Overall P/L is the change in total net worth (cash + stocks)
         const currentNetWorth = player.money + stockData.portfolioValue;
         const totalProfit = currentNetWorth - initialMoney;
-        const totalProfitPerMinute = (runtimeSeconds > 0) ? (totalProfit / runtimeSeconds) * 60 : 0;
-        
-        // Hacking P/L is the change in cash NOT accounted for by stock sales
         const hackingProfit = player.money - initialMoney - stockData.sessionProfitAndLoss;
-        const hackingProfitPerMinute = (runtimeSeconds > 0) ? (hackingProfit / runtimeSeconds) * 60 : 0;
-
-        // 3. Print Final Report
+        
         ns.tprint("======== UNIFIED STATUS REPORT ========");
         ns.tprint("Runtime:         " + ns.tFormat(runtimeSeconds * 1000));
         ns.tprint("Total Net Worth: " + ns.nFormat(currentNetWorth, '$0.00a'));
-        ns.tprint("Overall P/L:     " + ns.nFormat(totalProfitPerMinute, '$0.00a') + "/min");
+        ns.tprint("Overall P/L:     " + ns.nFormat(totalProfit, '$0.00a') + " (total)");
         ns.tprint("---------------------------------------");
-        ns.tprint("Hacking P/L:     " + ns.nFormat(hackingProfitPerMinute, '$0.00a') + "/min");
+        ns.tprint("Hacking P/L:     " + ns.nFormat(hackingProfit, '$0.00a') + " (total)");
         ns.tprint("Stock P/L:       " + ns.nFormat(stockData.sessionProfitAndLoss, '$0.00a') + " (total)");
         ns.tprint("---------------------------------------");
         ns.tprint("Hacking Target:  " + (bestTarget || "None"));
@@ -122,6 +155,6 @@ export async function main(ns) {
         ns.tprint("Network RAM:     " + ns.nFormat(totalUsedRam * 1e9, '0.00b') + " / " + ns.nFormat(totalMaxRam * 1e9, '0.00b') + " (" + (totalMaxRam > 0 ? Math.round((totalUsedRam / totalMaxRam) * 100) : 0) + "%)");
         ns.tprint("=======================================");
         
-        await ns.sleep(30000);
+        await ns.sleep(10000);
     }
 }
