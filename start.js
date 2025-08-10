@@ -1,7 +1,8 @@
 /** @param {NS} ns **/
 export async function main(ns) {
     // --- Script Configuration ---
-    const scriptToRun = 'basic-hack.js';
+    const mainHackScript = 'basic-hack.js';
+    const liteHackScript = 'lite-hack.js';
     const stonksScript = 'stonks.js';
     const dataPort = 1;
     const ramToPurchase = 128; 
@@ -21,7 +22,6 @@ export async function main(ns) {
     
     // --- Main Loop ---
     while (true) {
-        // NEW: This is a more robust check for Singularity API access that won't crash.
         const hasSingularity = ns.singularity && typeof ns.singularity.purchaseServer === 'function';
 
         // --- Server Discovery & Rooting ---
@@ -54,7 +54,6 @@ export async function main(ns) {
 
         const rootedServers = allServers.filter(s => ns.hasRootAccess(s));
 
-        // --- All Singularity-dependent actions are now inside this block ---
         if (hasSingularity) {
             // --- Server Purchasing ---
             const serverLimit = ns.getPurchasedServerLimit();
@@ -84,7 +83,6 @@ export async function main(ns) {
                 const serverInfo = ns.getServer(server);
                 if (!serverInfo.backdoorInstalled && server !== 'home') {
                     ns.tprint(`INFO: Attempting to install backdoor on ${server}...`);
-                    // To install a backdoor, you first have to connect to the server.
                     const path = [server];
                     let current = server;
                     while(current !== 'home'){
@@ -94,7 +92,7 @@ export async function main(ns) {
                     }
                     path.forEach(p => ns.singularity.connect(p));
                     await ns.singularity.installBackdoor();
-                    ns.singularity.connect('home'); // Go back home
+                    ns.singularity.connect('home');
                     ns.tprint(`✅ Backdoor installed on ${server}.`);
                 }
             }
@@ -113,18 +111,32 @@ export async function main(ns) {
         }
 
         // --- Script Deployment ---
+        const mainScriptRam = ns.getScriptRam(mainHackScript, 'home');
+        const liteScriptRam = ns.getScriptRam(liteHackScript, 'home');
         let totalMaxRam = 0, totalUsedRam = 0, attackingHosts = 0;
         for (const host of rootedServers) {
-            let maxRam = ns.getServerMaxRam(host), usedRam = ns.getServerUsedRam(host);
+            let maxRam = ns.getServerMaxRam(host);
+            let usedRam = ns.getServerUsedRam(host);
             totalMaxRam += maxRam;
             totalUsedRam += usedRam;
-            if (ns.scriptRunning(scriptToRun, host)) {
+            let availableRam = maxRam - usedRam;
+            if (ns.scriptRunning(mainHackScript, host) || ns.scriptRunning(liteHackScript, host)) {
                 attackingHosts++;
-            } else if (maxRam > 0 && bestTarget !== '') {
-                await ns.scp(scriptToRun, host, 'home');
-                let threads = Math.floor((maxRam - usedRam) / ns.getScriptRam(scriptToRun, host));
+                continue;
+            }
+            if (!bestTarget) continue;
+            if (availableRam >= mainScriptRam) {
+                await ns.scp(mainHackScript, host, 'home');
+                let threads = Math.floor(availableRam / mainScriptRam);
                 if (threads > 0) {
-                    ns.exec(scriptToRun, host, threads, bestTarget);
+                    ns.exec(mainHackScript, host, threads, bestTarget);
+                    attackingHosts++;
+                }
+            } else if (availableRam >= liteScriptRam) {
+                await ns.scp(liteHackScript, host, 'home');
+                let threads = Math.floor(availableRam / liteScriptRam);
+                if (threads > 0) {
+                    ns.exec(liteHackScript, host, threads, bestTarget);
                     attackingHosts++;
                 }
             }
@@ -135,13 +147,11 @@ export async function main(ns) {
         let stockData = { portfolioValue: 0, sessionProfitAndLoss: 0 };
         const portData = ns.peek(dataPort);
         if (portData !== "NULL PORT DATA") stockData = JSON.parse(portData);
-
         const player = ns.getPlayer();
         const runtimeSeconds = (Date.now() - startTime) / 1000;
         const currentNetWorth = player.money + stockData.portfolioValue;
         const totalProfit = currentNetWorth - initialMoney;
         const hackingProfit = player.money - initialMoney - stockData.sessionProfitAndLoss;
-        
         ns.tprint("======== UNIFIED STATUS REPORT ========");
         ns.tprint("Runtime:         " + ns.tFormat(runtimeSeconds * 1000));
         ns.tprint("Total Net Worth: " + ns.nFormat(currentNetWorth, '$0.00a'));
