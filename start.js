@@ -7,7 +7,6 @@ export async function main(ns) {
   ns.disableLog('ALL');
   ns.tprint('🚀 HWGW Batcher OS Starting...');
   
-  // ### NEW: Ensure manager scripts are running ###
   const upgraderScript = 'upgrade-manager.js';
   const pwnedScript = 'pwned-manager.js';
   if (!ns.isRunning(upgraderScript, 'home')) {
@@ -30,12 +29,14 @@ export async function main(ns) {
   let completedBatches = 0;
   let bottleneck = 'Analyzing...';
   let target = 'n00dles'; 
+  let currentPhase = 'Initializing';
+  await ns.write('target.txt', target, 'w');
 
   // --- MAIN LOOP ---
   while (true) {
     ns.clearLog();
     
-    // --- STEP 1: FLEET MANAGEMENT ---
+    // --- STEP 1: Fleet & Progression Management (No Changes) ---
     for (const server of ns.getPurchasedServers()) {
       const serverRam = ns.getServerMaxRam(server);
       if (serverRam < minRamToBuy) {
@@ -44,8 +45,6 @@ export async function main(ns) {
         ns.deleteServer(server);
       }
     }
-    
-    // --- STEP 2: SERVER ACQUISITION ---
     const purchasedServers = ns.getPurchasedServers();
     if (purchasedServers.length < ns.getPurchasedServerLimit()) {
       bottleneck = `Cash (for pserv-${purchasedServers.length})`;
@@ -61,7 +60,7 @@ export async function main(ns) {
       }
     }
 
-    // --- STEP 3: DYNAMIC TARGET SELECTION ---
+    // --- STEP 2: DYNAMIC TARGET SELECTION (No Changes) ---
     const newTarget = findBestTarget(ns);
     if (newTarget && newTarget !== target) {
       ns.tprint(`🎯 New optimal target identified: ${newTarget}`);
@@ -69,18 +68,34 @@ export async function main(ns) {
       await ns.write('target.txt', target, 'w');
     }
 
-    // --- SPACERADIO TRANSMISSION ---
+    // ### NEW LOGIC: STEP 3: PHASE DETERMINATION ###
+    // Decide what to do before reporting and acting.
+    const maxMoney = ns.getServerMaxMoney(target);
+    const minSec = ns.getServerMinSecurityLevel(target);
+    if (ns.getServerSecurityLevel(target) > minSec + prep_securityThreshold) {
+      bottleneck = 'RAM (for target prep)';
+      currentPhase = 'Weakening';
+    } else if (ns.getServerMoneyAvailable(target) < maxMoney * prep_moneyThreshold) {
+      bottleneck = 'RAM (for target prep)';
+      currentPhase = 'Growing';
+    } else {
+      bottleneck = 'Network Throughput (ideal)';
+      currentPhase = 'Hacking (Batching)';
+    }
+
+    // --- STEP 4: SPACERADIO TRANSMISSION (Now always accurate) ---
     if (Date.now() - lastLogTime > logInterval) {
         lastLogTime = Date.now();
         const network = getNetworkRam(ns);
         const pservs = ns.getPurchasedServers();
         const utilization = network.total > 0 ? ((network.used / network.total) * 100).toFixed(2) : 0;
+        const supportFleetSize = ns.read('support-stats.txt') || 0;
         ns.tprint(`
         📡 ==[ SPACERADIO TRANSMISSION ]==
            System Time: ${new Date().toLocaleTimeString('en-US')}
-           Fleet Status: ${pservs.length}/${ns.getPurchasedServerLimit()} servers owned. ${pservs.length + 1} total nodes online.
-           Network Utilization: ${utilization}% (${ns.formatRam(network.used)}/${ns.formatRam(network.total)})
-           Current Directive: Engaging target [${target}]
+           Core Fleet: ${pservs.length + 1} nodes (${ns.formatRam(network.used)}/${ns.formatRam(network.total)} RAM used)
+           Support Fleet: ${supportFleetSize} pwned nodes online.
+           Current Directive: ${currentPhase} target [${target}]
            Batches Launched: ${completedBatches}
            Current Bottleneck: ${bottleneck}
            --- Operation Times ---
@@ -90,52 +105,46 @@ export async function main(ns) {
         `);
     }
 
-    // --- STEP 4: Prepare Target Server ---
-    const maxMoney = ns.getServerMaxMoney(target);
-    const minSec = ns.getServerMinSecurityLevel(target);
-
-    if (ns.getServerSecurityLevel(target) > minSec + prep_securityThreshold) {
-      bottleneck = 'RAM (for target prep)';
+    // ### NEW LOGIC: STEP 5: ACTION EXECUTION ###
+    // Execute the action that was decided in Step 3.
+    if (currentPhase === 'Weakening') {
       await runPrep(ns, target, 'weaken.js');
       continue;
     }
-    if (ns.getServerMoneyAvailable(target) < maxMoney * prep_moneyThreshold) {
-      bottleneck = 'RAM (for target prep)';
+    if (currentPhase === 'Growing') {
       await runPrep(ns, target, 'grow.js');
       continue;
     }
-
-    // --- STEP 5: Calculate and Launch Batches ---
-    const batch = calculateBatch(ns, target, hackPercent);
-    if (batch.ramCost > getNetworkRam(ns).total) {
-      bottleneck = `RAM (for initial batch)`;
-      ns.print(`ERROR: Not enough RAM for a single batch. Need ${ns.formatRam(batch.ramCost)}. Waiting...`);
-      await ns.sleep(30000);
-      continue;
-    }
-
-    let batching = true;
-    while (batching) {
-      bottleneck = 'Network Throughput (ideal)';
-      if (ns.getServerSecurityLevel(target) > minSec + prep_securityThreshold || ns.getServerMoneyAvailable(target) < maxMoney * prep_moneyThreshold) {
-          ns.print(`WARN: Target ${target} de-synced. Breaking to re-prep.`);
-          batching = false; 
-          continue;
+    if (currentPhase === 'Hacking (Batching)') {
+      const batch = calculateBatch(ns, target, hackPercent);
+      if (batch.ramCost > getNetworkRam(ns).total) {
+        bottleneck = `RAM (for initial batch)`;
+        ns.print(`ERROR: Not enough RAM for a single batch. Need ${ns.formatRam(batch.ramCost)}. Waiting...`);
+        await ns.sleep(30000);
+        continue;
       }
-      if (batch.ramCost > (getNetworkRam(ns).total - getNetworkRam(ns).used)) {
+      // This is now an inner loop for continuous batching
+      while (currentPhase === 'Hacking (Batching)') {
+        // Re-check conditions to see if we need to break out of batching
+        if (ns.getServerSecurityLevel(target) > minSec + prep_securityThreshold || ns.getServerMoneyAvailable(target) < maxMoney * prep_moneyThreshold) {
+          ns.print(`WARN: Target ${target} de-synced. Breaking to re-prep.`);
+          break; // Exit inner loop
+        }
+        if (batch.ramCost > (getNetworkRam(ns).total - getNetworkRam(ns).used)) {
           bottleneck = 'RAM (for concurrent batches)';
           await ns.sleep(100); 
-          continue;
+          continue; // Wait for RAM in inner loop
+        }
+        
+        const weakenTime = ns.getWeakenTime(target);
+        const landTime = Date.now() + weakenTime + (2 * batchSeparation);
+        deploy(ns, target, 'hack.js', batch.hackThreads, landTime - (2 * batchSeparation) - ns.getHackTime(target));
+        deploy(ns, target, 'weaken.js', batch.weaken1Threads, landTime - batchSeparation - ns.getWeakenTime(target));
+        deploy(ns, target, 'grow.js', batch.growThreads, landTime - ns.getGrowTime(target));
+        deploy(ns, target, 'weaken.js', batch.weaken2Threads, landTime + batchSeparation - ns.getWeakenTime(target));
+        completedBatches++;
+        await ns.sleep(4 * batchSeparation);
       }
-      
-      const weakenTime = ns.getWeakenTime(target);
-      const landTime = Date.now() + weakenTime + (2 * batchSeparation);
-      deploy(ns, target, 'hack.js', batch.hackThreads, landTime - (2 * batchSeparation) - ns.getHackTime(target));
-      deploy(ns, target, 'weaken.js', batch.weaken1Threads, landTime - batchSeparation - ns.getWeakenTime(target));
-      deploy(ns, target, 'grow.js', batch.growThreads, landTime - ns.getGrowTime(target));
-      deploy(ns, target, 'weaken.js', batch.weaken2Threads, landTime + batchSeparation - ns.getWeakenTime(target));
-      completedBatches++;
-      await ns.sleep(4 * batchSeparation);
     }
   }
 }
