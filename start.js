@@ -1,139 +1,155 @@
 /** @param {NS} ns **/
 export async function main(ns) {
-    // --- Script Configuration ---
-    const mainHackScript = 'basic-hack.js';
-    const liteHackScript = 'lite-hack.js';
+  // --- HELPER FUNCTION to format milliseconds into MM:SS ---
+  const formatTime = (ms) => new Date(ms).toISOString().substr(14, 5);
 
-    // --- State Tracking ---
-    const startTime = Date.now();
-    const initialMoney = ns.getPlayer().money; 
-    ns.disableLog('ALL');
-    ns.clearLog();
-    
-    // --- Main Loop ---
-    while (true) {
-        const hasSingularity = ns.singularity && typeof ns.singularity.purchaseServer === 'function';
-        const player = ns.getPlayer();
+  // --- CONFIGURATION ---
+  const minRamToBuy = 64; 
+  let target = '';
+  const moneyThreshold = 0.75;
+  const securityThreshold = 5;
+  const workerRam = 1.75;
 
-        // --- Server Discovery & Rooting ---
-        const serverSet = new Set(['home']);
-        const serversToScan = ['home'];
-        while (serversToScan.length > 0) {
-            let currentServer = serversToScan.shift();
-            for (const neighbor of ns.scan(currentServer)) {
-                if (!serverSet.has(neighbor)) {
-                    serverSet.add(neighbor);
-                    serversToScan.push(neighbor);
-                }
-            }
-        }
-        for (const pserv of ns.getPurchasedServers()) {
-            serverSet.add(pserv);
-        }
-        const allServers = Array.from(serverSet);
+  // --- Status Report Configuration ---
+  let lastLogTime = 0;
+  const logInterval = 60000;
 
-        for (const server of allServers) {
-            if (ns.hasRootAccess(server)) continue;
-            let openPorts = 0;
-            if (ns.fileExists("BruteSSH.exe", "home")) { try { ns.brutessh(server); openPorts++; } catch {} }
-            if (ns.fileExists("FTPCrack.exe", "home")) { try { ns.ftpcrack(server); openPorts++; } catch {} }
-            if (ns.fileExists("relaySMTP.exe", "home")) { try { ns.relaysmtp(server); openPorts++; } catch {} }
-            if (ns.fileExists("HTTPWorm.exe", "home")) { try { ns.httpworm(server); openPorts++; } catch {} }
-            if (ns.fileExists("SQLInject.exe", "home")) { try { ns.sqlinject(server); openPorts++; } catch {} }
-            if (ns.getServerNumPortsRequired(server) <= openPorts) {
-                try { ns.nuke(server); } catch {}
-            }
-        }
+  // --- SCRIPT INITIALIZATION ---
+  ns.disableLog('ALL');
+  ns.tprint('🚀 HIVE MIND OS BOOTING... STANDBY...');
+  ns.tprint(`🦾 Minimum server RAM target set to: ${minRamToBuy}GB`);
 
-        const rootedServers = allServers.filter(s => ns.hasRootAccess(s));
+  const home = 'home';
+  const workerScripts = ['hack.js', 'grow.js', 'weaken.js'];
 
-        // --- Singularity Actions ---
-        if (hasSingularity && !ns.isBusy()) {
-            ns.singularity.purchaseTor();
-            const programs = ["BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe", "HTTPWorm.exe", "SQLInject.exe"];
-            for (const program of programs) ns.singularity.purchaseProgram(program);
-
-            const backdoorTarget = rootedServers.find(s => !ns.getServer(s).backdoorInstalled && s !== 'home');
-            if (backdoorTarget) {
-                await ns.singularity.connect(backdoorTarget);
-                await ns.singularity.installBackdoor();
-                await ns.singularity.connect("home");
-            }
-        }
-
-        // --- Target Selection ---
-        let bestTarget = '';
-        let maxScore = 0;
-        for (const server of rootedServers) {
-            if (server === 'home' || ns.getServerMaxMoney(server) === 0) continue;
-            const score = ns.getServerMaxMoney(server) / (ns.getWeakenTime(server) + ns.getGrowTime(server) + ns.getHackTime(server));
-            if (score > maxScore) {
-                maxScore = score;
-                bestTarget = server;
-            }
-        }
-
-        // --- ROBUST SCRIPT DEPLOYMENT ---
-        const mainScriptRam = ns.getScriptRam(mainHackScript, 'home');
-        const liteScriptRam = ns.getScriptRam(liteHackScript, 'home');
-        let totalMaxRam = 0, totalUsedRam = 0, attackingHosts = 0;
-        
-        for (const host of rootedServers) {
-            const maxRam = ns.getServerMaxRam(host);
-            const usedRam = ns.getServerUsedRam(host);
-            totalMaxRam += maxRam;
-            totalUsedRam += usedRam;
-            
-            if (host === 'home') continue;
-            if (ns.scriptRunning(mainHackScript, host) || ns.scriptRunning(liteHackScript, host)) {
-                attackingHosts++;
-                continue;
-            }
-            if (!bestTarget) continue;
-            
-            let availableRam = maxRam - usedRam;
-            if (availableRam >= mainScriptRam) {
-                let threads = Math.floor(availableRam / mainScriptRam);
-                if (threads > 0 && await ns.scp(mainHackScript, host, 'home')) {
-                    if (ns.exec(mainHackScript, host, threads, bestTarget) !== 0) attackingHosts++;
-                }
-            } else if (availableRam >= liteScriptRam) {
-                let threads = Math.floor(availableRam / liteScriptRam);
-                 if (threads > 0 && await ns.scp(liteHackScript, host, 'home')) {
-                    if (ns.exec(liteHackScript, host, threads, bestTarget) !== 0) attackingHosts++;
-                }
-            }
-        }
-
-        // --- UNIFIED REPORTING SECTION ---
-        ns.clearLog();
-        const moneyFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        
-        const hackingProfit = player.money - initialMoney;
-
-        ns.tprint("======== UNIFIED STATUS REPORT ========");
-        ns.tprint(`Runtime:         ${ns.tFormat((Date.now() - startTime))}`);
-        ns.tprint(`Hacking Profit:  ${moneyFormatter.format(hackingProfit)} (total)`);
-        ns.tprint("---------------------------------------");
-        ns.tprint(`Hacking Target:  ${(bestTarget || "None")}`);
-        ns.tprint(`Hacking Hosts:   ${attackingHosts} / ${rootedServers.length - 1} rooted`);
-        ns.tprint(`Network RAM:     ${ns.formatRam(totalUsedRam)} / ${ns.formatRam(totalMaxRam)} (${ns.formatPercent(totalUsedRam / totalMaxRam, 0)})`);
-        
-        if (hasSingularity) {
-            if (ns.isBusy()) {
-                const work = ns.singularity.getCurrentWork();
-                if (work) {
-                     ns.tprint(`Status:          Busy with ${work.type}...`);
-                } else {
-                     ns.tprint("Status:          Busy with a task...");
-                }
-            } else {
-                const backdoorsRemaining = rootedServers.filter(s => !ns.getServer(s).backdoorInstalled && s !== 'home').length;
-                ns.tprint(`Backdoors Left:  ${backdoorsRemaining}`);
-            }
-        }
-        ns.tprint("=======================================");
-
-        await ns.sleep(5000);
+  // --- MAIN LOOP ---
+  while (true) {
+    // --- STEP 1: FLEET MANAGEMENT ---
+    for (const server of ns.getPurchasedServers()) {
+      if (ns.getServerMaxRam(server) < minRamToBuy) {
+        ns.tprint(`🚨 Decommissioning obsolete server: ${server}...`);
+        ns.killall(server);
+        ns.deleteServer(server);
+      }
     }
+    
+    // --- STEP 2: SERVER ACQUISITION ---
+    const purchasedServers = ns.getPurchasedServers();
+    if (purchasedServers.length < ns.getPurchasedServerLimit()) {
+      const currentMoney = ns.getServerMoneyAvailable(home);
+      for (let ram = Math.pow(2, 20); ram >= 2; ram /= 2) {
+        if (ram < minRamToBuy) break;
+        if (currentMoney > ns.getPurchasedServerCost(ram)) {
+          const hostname = `pserv-${purchasedServers.length}`;
+          ns.purchaseServer(hostname, ram);
+          ns.tprint(`✅ FLEET EXPANDED: Acquired new server '${hostname}' with ${ram}GB RAM.`);
+          break;
+        }
+      }
+    }
+
+    // --- STEP 3: NETWORK DISCOVERY & TARGETING ---
+    const allServers = new Set([home]);
+    const scanQueue = [home];
+    while (scanQueue.length > 0) {
+      const current = scanQueue.shift();
+      for (const neighbor of ns.scan(current)) {
+        if (!allServers.has(neighbor)) {
+          allServers.add(neighbor);
+          scanQueue.push(neighbor);
+        }
+      }
+    }
+
+    const pwnedServers = Array.from(allServers).filter(s => {
+      if (s !== home && !ns.hasRootAccess(s)) {
+        try { ns.nuke(s); } catch { /* Ignore */ }
+      }
+      return ns.hasRootAccess(s);
+    });
+    pwnedServers.push(home);
+
+    const potentialTargets = pwnedServers.filter(s => 
+      !s.startsWith('pserv-') && ns.getServerMaxMoney(s) > 0
+    );
+
+    target = potentialTargets.reduce((prev, curr) => {
+      if (!prev) return curr;
+      const prevScore = ns.getServerMaxMoney(prev) / ns.getServerMinSecurityLevel(prev);
+      const currScore = ns.getServerMaxMoney(curr) / ns.getServerMinSecurityLevel(curr);
+      return currScore > prevScore ? curr : prev;
+    }, '');
+
+    if (!target) {
+        ns.print("No valid targets found. Waiting...");
+        await ns.sleep(10000);
+        continue;
+    }
+
+    // --- STEP 4: PREPARATION & DEPLOYMENT ---
+    const minSec = ns.getServerMinSecurityLevel(target) + securityThreshold;
+    const maxMon = ns.getServerMaxMoney(target) * moneyThreshold;
+
+    let actionScript;
+    if (ns.getServerSecurityLevel(target) > minSec) {
+      actionScript = 'weaken.js';
+    } else if (ns.getServerMoneyAvailable(target) < maxMon) {
+      actionScript = 'grow.js';
+    } else {
+      actionScript = 'hack.js';
+    }
+
+    for (const server of pwnedServers) {
+        await ns.scp(workerScripts, server, home);
+        const availableRam = ns.getServerMaxRam(server) - ns.getServerUsedRam(server);
+        const threads = Math.floor(availableRam / workerRam);
+        if (threads > 0) {
+          ns.exec(actionScript, server, threads, target);
+        }
+    }
+
+    // --- UPDATED: SPACERADIO STATUS REPORT ---
+    if (Date.now() - lastLogTime > logInterval) {
+      lastLogTime = Date.now();
+      
+      // -- Gather data for the report --
+      let totalRam = 0, usedRam = 0;
+      pwnedServers.forEach(s => {
+          totalRam += ns.getServerMaxRam(s);
+          usedRam += ns.getServerUsedRam(s);
+      });
+      const utilization = totalRam > 0 ? ((usedRam / totalRam) * 100).toFixed(2) : 0;
+      
+      // -- Determine phase and time remaining --
+      let phase, timeRemaining;
+      switch(actionScript) {
+        case 'weaken.js':
+          phase = "PREP (Weaken)";
+          timeRemaining = ns.getWeakenTime(target);
+          break;
+        case 'grow.js':
+          phase = "PREP (Grow)";
+          timeRemaining = ns.getGrowTime(target);
+          break;
+        case 'hack.js':
+          phase = "ATTACK (Hack)";
+          timeRemaining = ns.getHackTime(target);
+          break;
+      }
+
+      ns.tprint(`
+        📡 ==[ SPACERADIO TRANSMISSION ]==
+           System Time: ${new Date().toLocaleTimeString()}
+           Fleet Status: ${ns.getPurchasedServers().length}/${ns.getPurchasedServerLimit()} servers owned. ${pwnedServers.length} total nodes online.
+           Network Utilization: ${utilization}% (${usedRam.toFixed(2)}/${totalRam.toFixed(2)} GB)
+           Current Directive: Engaging target [${target}]
+           Phase: ${phase}
+           Est. Time Remaining: ~${formatTime(timeRemaining)}
+           System State: All systems green.
+        `
+      );
+    }
+
+    await ns.sleep(1000);
+  }
 }
