@@ -1,6 +1,6 @@
 /** @param {NS} ns **/
 
-// --- HELPER FUNCTION (MOVED TO GLOBAL SCOPE) ---
+// --- HELPER FUNCTION (GLOBAL SCOPE) ---
 const formatTime = (ms) => new Date(ms).toISOString().substr(14, 5);
 
 export async function main(ns) {
@@ -8,6 +8,7 @@ export async function main(ns) {
   ns.tprint('🚀 HWGW Batcher OS Starting...');
   
   // --- CONFIGURATION ---
+  const minRamToBuy = 256; // Minimum RAM to buy/keep.
   let target = 'n00dles'; 
   const hackPercent = 0.25; 
   const batchSeparation = 200; 
@@ -22,13 +23,39 @@ export async function main(ns) {
   while (true) {
     ns.clearLog();
     
-    // --- STEP 1: Find best target ---
+    // --- STEP 1: FLEET MANAGEMENT ---
+    // This module culls any servers below our minimum RAM standard.
+    for (const server of ns.getPurchasedServers()) {
+      const serverRam = ns.getServerMaxRam(server);
+      if (serverRam < minRamToBuy) {
+        // ### THIS LINE HAS BEEN UPDATED ###
+        ns.tprint(`🚨 Decommissioning ${server} (${serverRam}GB) - does not meet minimum of ${minRamToBuy}GB.`);
+        ns.killall(server);
+        ns.deleteServer(server);
+      }
+    }
+    
+    // --- STEP 2: SERVER ACQUISITION ---
+    const purchasedServers = ns.getPurchasedServers();
+    if (purchasedServers.length < ns.getPurchasedServerLimit()) {
+      const currentMoney = ns.getServerMoneyAvailable('home');
+      for (let ram = Math.pow(2, 20); ram >= minRamToBuy; ram /= 2) {
+        if (currentMoney > ns.getPurchasedServerCost(ram)) {
+          const hostname = `pserv-${purchasedServers.length}`; 
+          ns.purchaseServer(hostname, ram);
+          ns.tprint(`✅ FLEET EXPANDED: Acquired new server '${hostname}' with ${ram}GB RAM.`);
+          break;
+        }
+      }
+    }
+
+    // --- STEP 3: Find best target ---
     if (ns.getServerRequiredHackingLevel(target) > ns.getHackingLevel()) {
       target = 'joesguns';
       ns.tprint(`WARN: Target changed to ${target}`);
     }
 
-    // --- STEP 2: Prepare Target Server ---
+    // --- STEP 4: Prepare Target Server ---
     const maxMoney = ns.getServerMaxMoney(target);
     const minSec = ns.getServerMinSecurityLevel(target);
 
@@ -41,7 +68,7 @@ export async function main(ns) {
       continue;
     }
 
-    // --- STEP 3: Calculate and Launch Batches ---
+    // --- STEP 5: Calculate and Launch Batches ---
     const batch = calculateBatch(ns, target, hackPercent);
     if (batch.ramCost > getNetworkRam(ns).total) {
       ns.print(`ERROR: Not enough RAM for a single batch. Need ${ns.formatRam(batch.ramCost)}. Waiting...`);
@@ -49,7 +76,6 @@ export async function main(ns) {
       continue;
     }
 
-    // Main batching loop
     let batching = true;
     while (batching) {
       if (ns.getServerSecurityLevel(target) > minSec + prep_securityThreshold || ns.getServerMoneyAvailable(target) < maxMoney * prep_moneyThreshold) {
@@ -73,11 +99,12 @@ export async function main(ns) {
       if (Date.now() - lastLogTime > logInterval) {
         lastLogTime = Date.now();
         const network = getNetworkRam(ns);
+        const pservs = ns.getPurchasedServers();
         const utilization = network.total > 0 ? ((network.used / network.total) * 100).toFixed(2) : 0;
         ns.tprint(`
         📡 ==[ SPACERADIO TRANSMISSION ]==
            System Time: ${new Date().toLocaleTimeString()}
-           Fleet Status: ${ns.getPurchasedServers().length}/${ns.getPurchasedServerLimit()} servers owned.
+           Fleet Status: ${pservs.length}/${ns.getPurchasedServerLimit()} servers owned. ${pservs.length + 1} total nodes online.
            Network Utilization: ${utilization}% (${ns.formatRam(network.used)}/${ns.formatRam(network.total)})
            Current Directive: Engaging target [${target}]
            Phase: BATCHING (HWGW)
@@ -93,7 +120,6 @@ export async function main(ns) {
 
 // --- GLOBAL HELPER FUNCTIONS ---
 
-/** Calculates the threads and RAM for one HWGW batch */
 function calculateBatch(ns, target, hackPercent) {
   const serverMaxMoney = ns.getServerMaxMoney(target);
   const moneyToHack = serverMaxMoney * hackPercent;
@@ -116,7 +142,6 @@ function calculateBatch(ns, target, hackPercent) {
   };
 }
 
-/** Deploys a script to any available server */
 function deploy(ns, target, script, threads, delay) {
   if (threads === 0) return;
   let remainingThreads = threads;
@@ -136,7 +161,6 @@ function deploy(ns, target, script, threads, delay) {
   }
 }
 
-/** Gets total and used RAM on purchased servers + home */
 function getNetworkRam(ns) {
   let totalRam = 0;
   let usedRam = 0;
@@ -148,7 +172,6 @@ function getNetworkRam(ns) {
   return { total: totalRam, used: usedRam };
 }
 
-/** A simple deployment function for the initial server prep */
 async function runPrep(ns, target, script) {
   const ramCost = ns.getScriptRam(script);
   const network = getNetworkRam(ns);
