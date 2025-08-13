@@ -7,9 +7,18 @@ export async function main(ns) {
   ns.disableLog('ALL');
   ns.tprint('🚀 HWGW Batcher OS Starting...');
   
+  // ### NEW: Ensure manager scripts are running ###
+  const upgraderScript = 'upgrade-manager.js';
+  const pwnedScript = 'pwned-manager.js';
+  if (!ns.isRunning(upgraderScript, 'home')) {
+    ns.exec(upgraderScript, 'home', 1);
+  }
+  if (!ns.isRunning(pwnedScript, 'home')) {
+    ns.exec(pwnedScript, 'home', 1);
+  }
+
   // --- CONFIGURATION ---
-  const minRamToBuy = 256; 
-  let target = 'n00dles'; 
+  const minRamToBuy = 256;
   const hackPercent = 0.25; 
   const batchSeparation = 200; 
   const prep_moneyThreshold = 0.90;
@@ -19,8 +28,8 @@ export async function main(ns) {
   let lastLogTime = 0;
   const logInterval = 60000;
   let completedBatches = 0;
-  // ### NEW: Initialize bottleneck status ###
   let bottleneck = 'Analyzing...';
+  let target = 'n00dles'; 
 
   // --- MAIN LOOP ---
   while (true) {
@@ -46,17 +55,39 @@ export async function main(ns) {
           const hostname = `pserv-${purchasedServers.length}`; 
           ns.purchaseServer(hostname, ram);
           ns.tprint(`✅ FLEET EXPANDED: Acquired new server '${hostname}' with ${ram}GB RAM.`);
-          bottleneck = 'None'; // Clear bottleneck after successful purchase
+          bottleneck = 'None';
           break;
         }
       }
     }
 
-    // --- STEP 3: Find best target ---
-    // This can be expanded, but for now we will stick to simple targets
-    if (ns.getServerRequiredHackingLevel(target) > ns.getHackingLevel()) {
-      target = 'joesguns';
-      ns.tprint(`WARN: Target changed to ${target}`);
+    // --- STEP 3: DYNAMIC TARGET SELECTION ---
+    const newTarget = findBestTarget(ns);
+    if (newTarget && newTarget !== target) {
+      ns.tprint(`🎯 New optimal target identified: ${newTarget}`);
+      target = newTarget;
+      await ns.write('target.txt', target, 'w');
+    }
+
+    // --- SPACERADIO TRANSMISSION ---
+    if (Date.now() - lastLogTime > logInterval) {
+        lastLogTime = Date.now();
+        const network = getNetworkRam(ns);
+        const pservs = ns.getPurchasedServers();
+        const utilization = network.total > 0 ? ((network.used / network.total) * 100).toFixed(2) : 0;
+        ns.tprint(`
+        📡 ==[ SPACERADIO TRANSMISSION ]==
+           System Time: ${new Date().toLocaleTimeString('en-US')}
+           Fleet Status: ${pservs.length}/${ns.getPurchasedServerLimit()} servers owned. ${pservs.length + 1} total nodes online.
+           Network Utilization: ${utilization}% (${ns.formatRam(network.used)}/${ns.formatRam(network.total)})
+           Current Directive: Engaging target [${target}]
+           Batches Launched: ${completedBatches}
+           Current Bottleneck: ${bottleneck}
+           --- Operation Times ---
+           Hack Time:   ~${formatTime(ns.getHackTime(target))}
+           Grow Time:   ~${formatTime(ns.getGrowTime(target))}
+           Weaken Time: ~${formatTime(ns.getWeakenTime(target))}
+        `);
     }
 
     // --- STEP 4: Prepare Target Server ---
@@ -85,7 +116,7 @@ export async function main(ns) {
 
     let batching = true;
     while (batching) {
-      bottleneck = 'Network Throughput (ideal)'; // If we are here, we are only limited by batch speed
+      bottleneck = 'Network Throughput (ideal)';
       if (ns.getServerSecurityLevel(target) > minSec + prep_securityThreshold || ns.getServerMoneyAvailable(target) < maxMoney * prep_moneyThreshold) {
           ns.print(`WARN: Target ${target} de-synced. Breaking to re-prep.`);
           batching = false; 
@@ -96,35 +127,14 @@ export async function main(ns) {
           await ns.sleep(100); 
           continue;
       }
-
+      
       const weakenTime = ns.getWeakenTime(target);
       const landTime = Date.now() + weakenTime + (2 * batchSeparation);
-
       deploy(ns, target, 'hack.js', batch.hackThreads, landTime - (2 * batchSeparation) - ns.getHackTime(target));
       deploy(ns, target, 'weaken.js', batch.weaken1Threads, landTime - batchSeparation - ns.getWeakenTime(target));
       deploy(ns, target, 'grow.js', batch.growThreads, landTime - ns.getGrowTime(target));
       deploy(ns, target, 'weaken.js', batch.weaken2Threads, landTime + batchSeparation - ns.getWeakenTime(target));
-      
       completedBatches++;
-      
-      if (Date.now() - lastLogTime > logInterval) {
-        lastLogTime = Date.now();
-        const network = getNetworkRam(ns);
-        const pservs = ns.getPurchasedServers();
-        const utilization = network.total > 0 ? ((network.used / network.total) * 100).toFixed(2) : 0;
-        ns.tprint(`
-        📡 ==[ SPACERADIO TRANSMISSION ]==
-           System Time: ${new Date().toLocaleTimeString()}
-           Fleet Status: ${pservs.length}/${ns.getPurchasedServerLimit()} servers owned. ${pservs.length + 1} total nodes online.
-           Network Utilization: ${utilization}% (${ns.formatRam(network.used)}/${ns.formatRam(network.total)})
-           Current Directive: Engaging target [${target}]
-           Phase: BATCHING (HWGW)
-           Batches Launched: ${completedBatches}
-           Est. Cycle Time: ~${formatTime(ns.getWeakenTime(target))}
-           Current Bottleneck: ${bottleneck}
-        `);
-      }
-      
       await ns.sleep(4 * batchSeparation);
     }
   }
@@ -132,13 +142,56 @@ export async function main(ns) {
 
 // --- GLOBAL HELPER FUNCTIONS ---
 
+function findBestTarget(ns) {
+    const allServers = new Set();
+    const q = ['home'];
+    const visited = new Set(['home']);
+    let openPortTools = 0;
+    if (ns.fileExists("BruteSSH.exe")) openPortTools++;
+    if (ns.fileExists("FTPCrack.exe")) openPortTools++;
+    if (ns.fileExists("relaySMTP.exe")) openPortTools++;
+    if (ns.fileExists("HTTPWorm.exe")) openPortTools++;
+    if (ns.fileExists("SQLInject.exe")) openPortTools++;
+    while(q.length > 0) {
+        const server = q.shift();
+        allServers.add(server);
+        const neighbors = ns.scan(server);
+        for(const neighbor of neighbors) {
+            if(!visited.has(neighbor)) {
+                visited.add(neighbor);
+                q.push(neighbor);
+            }
+        }
+    }
+    const validTargets = Array.from(allServers).filter(s => {
+        if (!ns.hasRootAccess(s)) {
+            if (ns.getServerNumPortsRequired(s) <= openPortTools) {
+                try { 
+                    if (openPortTools > 0) ns.brutessh(s);
+                    if (openPortTools > 1) ns.ftpcrack(s);
+                    if (openPortTools > 2) ns.relaysmtp(s);
+                    if (openPortTools > 3) ns.httpworm(s);
+                    if (openPortTools > 4) ns.sqlinject(s);
+                    ns.nuke(s); 
+                } catch {}
+            }
+        }
+        return ns.hasRootAccess(s) && ns.getServerMaxMoney(s) > 0 && !s.startsWith('pserv-') && ns.getServerRequiredHackingLevel(s) <= ns.getHackingLevel();
+    }).map(s => {
+        const score = ns.getServerMaxMoney(s) / ns.getWeakenTime(s);
+        return { name: s, score: score };
+    });
+    if (validTargets.length === 0) return 'n00dles';
+    return validTargets.reduce((prev, curr) => prev.score > curr.score ? prev : curr).name;
+}
+
 function calculateBatch(ns, target, hackPercent) {
   const serverMaxMoney = ns.getServerMaxMoney(target);
   const moneyToHack = serverMaxMoney * hackPercent;
-  const hackThreads = Math.max(1, Math.floor(ns.hackAnalyzeThreads(target, moneyToHack)));
+  const hackThreads = moneyToHack > 0 ? Math.max(1, Math.floor(ns.hackAnalyzeThreads(target, moneyToHack))) : 1;
   const hackSecIncrease = ns.hackAnalyzeSecurity(hackThreads);
   const weaken1Threads = Math.max(1, Math.ceil(hackSecIncrease / ns.weakenAnalyze(1)));
-  const growThreads = Math.max(1, Math.ceil(ns.growthAnalyze(target, 1 / (1 - hackPercent))));
+  const growThreads = Math.max(1, Math.ceil(ns.growthAnalyze(target, 1 / (1 - hackPercent) + 0.01)));
   const growSecIncrease = ns.growthAnalyzeSecurity(growThreads);
   const weaken2Threads = Math.max(1, Math.ceil(growSecIncrease / ns.weakenAnalyze(1)));
   const hRam = ns.getScriptRam('hack.js');
