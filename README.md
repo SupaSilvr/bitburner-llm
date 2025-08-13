@@ -6,49 +6,37 @@ Repository for my Bitburner scripts and to learn Git and GitHub.
 2) Scripts listed require that you are using [ns2](https://bitburner.readthedocs.io/en/latest/netscript/netscriptjs.html) instead of [ns1](https://bitburner.readthedocs.io/en/latest/netscript/netscript1.html).
 3) Scripts are authored by a learner developing their scripting skills, with help from LLMs.
 
-# BitBurner Automation Suite
-This is a comprehensive, multi-script suite for BitBurner designed to automate hacking and stock market trading from a single command. It provides a unified dashboard in your terminal to monitor all operations and profit streams in real-time.
+# 🐝 Hive Mind OS - A Bitburner Automation Suite
+A fully automated script suite for the game Bitburner, designed for maximum efficiency and self-sufficiency. This system operates as a "hive mind," where a central orchestrator (start.js) manages a fleet of worker scripts to fully leverage the network.
 
 ## Features
-- **One-Command Start**: Launch the entire automation suite with a single script.
-- **Automated Hacking Network**: Automatically discovers, roots, and deploys hacking scripts across all available servers.
-- **Automated Stock Trading**: Runs a background script to buy and sell stocks based on market forecasts.
-- **Unified Dashboard**: A single, clean report in the terminal shows combined and individual P/L from both hacking and stocks, along with network status.
-- **Resource Aware**: Intelligently launches utility scripts before consuming all RAM with hacking operations.
+- 🤖 Fully Automated: Requires zero manual intervention after initial launch.
+- 🎯 Dynamic Targeting: Automatically analyzes and targets the most profitable server on the network.
+- 🌐 Network-Wide RAM Utilization: Uses 100% of the available RAM on your home computer, purchased servers, and all pwned servers.
+- 💵 Smart Server Purchasing: Automatically saves up for and purchases new servers that meet a user-defined minimum RAM requirement.
+- 🗑️ Automatic Server Culling: Automatically deletes underpowered purchased servers to make room for more powerful ones.
+- 📡 Themed Status Reports: Provides periodic, thematic updates to the terminal on fleet status, current operations, and time remaining.
 
 ## Scripts
 This suite consists of three core scripts that work together:
 1.  **`start.js`**
-    - The **master controller** and main entry point.
-    - Launches all other scripts.
-    - Scans and takes over the network.
-    - Gathers data from other scripts and prints the unified status report to the terminal.
-
-2.  **`basic-hack.js`**
-    - A simple, lightweight script for hacking, weakening, and growing a target server.
-    - This script is deployed by `start.js` onto every available rooted server.
-
-3.  **`stonks.js`**
-    - A silent, background stock trader.
-    - It continuously evaluates the market, buying promising stocks and selling underperforming ones.
-    - It reports its financial data back to `start.js` via a port without printing to the terminal itself.
+    - start.js: The main orchestrator script (the "Hive Queen"). This is the only script you need to run.
+2.  **`hack.js`**
+    - hack.js: A lightweight worker script that performs a hack() operation.
+3.  **`grow.js`** 
+    - grow.js: A lightweight worker script that performs a grow() operation.
+4.  **`weaken.js`** 
+    - weaken.js: A lightweight worker script that performs a weaken() operation.
 
 ## Setup & Usage
 
-### Prerequisites
-
-To use the stock market features, you must first purchase the following in-game:
-- WSE Account
-- TIX API Access
-- 4S Market Data
-- 4S Market Data TIX API Access
-
 ### Installation
 
-1.  In the game, create three new script files on your `home` server:
+1.  In the game, create four new script files on your `home` server:
     - `start.js`
-    - `basic-hack.js`
-    - `stonks.js`
+    - `hack.js`
+    - `grow.js`
+    - `weaken.js`
 2.  Copy and paste the corresponding code into each file.
 
 ### Running the Suite
