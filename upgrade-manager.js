@@ -20,12 +20,18 @@ export async function main(ns) {
     }
 
     // -- Program Purchase --
-    const programs = ["BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe", "HTTPWorm.exe", "SQLInject.exe"];
+    // ### UPDATED: Added all remaining programs to the list ###
+    const programs = [
+        "BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe", "HTTPWorm.exe", "SQLInject.exe",
+        "DeepscanV1.exe", "DeepscanV2.exe", "ServerProfiler.exe", "AutoLink.exe"
+    ];
+    
     if (!ns.hasTorRouter() && ns.getServerMoneyAvailable('home') > 200000) {
       if (ns.singularity.purchaseTor()) {
         ns.tprint('✅ Purchased TOR Router.');
       }
     }
+
     for (const prog of programs) {
       if (!ns.fileExists(prog, 'home') && ns.getServerMoneyAvailable('home') > ns.singularity.getDarkwebProgramCost(prog)) {
         if (ns.singularity.purchaseProgram(prog)) {
@@ -34,13 +40,11 @@ export async function main(ns) {
       }
     }
     
-    // ### NEW: Purchased Server Upgrade Logic ###
+    // -- Purchased Server Upgrade Logic --
     const purchasedServers = ns.getPurchasedServers();
-    // Only run this logic if the fleet is full.
     if (purchasedServers.length === ns.getPurchasedServerLimit()) {
-      // Find the server with the lowest RAM
-      let weakestServer = purchasedServers[0];
-      let minRam = ns.getServerMaxRam(weakestServer);
+      let weakestServer = purchasedServers[0] || null;
+      let minRam = weakestServer ? ns.getServerMaxRam(weakestServer) : 0;
 
       for (const server of purchasedServers) {
         const currentRam = ns.getServerMaxRam(server);
@@ -51,8 +55,7 @@ export async function main(ns) {
       }
 
       const nextRamTier = minRam * 2;
-      // Check if we can afford to upgrade the weakest server
-      if (nextRamTier <= ns.getPurchasedServerMaxRam()) {
+      if (weakestServer && nextRamTier <= ns.getPurchasedServerMaxRam()) {
         const upgradeCost = ns.getPurchasedServerCost(nextRamTier);
         if (ns.getServerMoneyAvailable('home') > upgradeCost) {
           if (ns.singularity.upgradePurchasedServer(weakestServer, nextRamTier)) {
