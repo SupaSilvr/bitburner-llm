@@ -1,18 +1,23 @@
 /** @param {NS} ns **/
 export async function main(ns) {
-  ns.disableLog('ALL');
-  const checkInterval = 10000; // Check for new servers and tasks every 10 seconds.
+  const checkInterval = 10000;
   const weakenScript = 'weaken.js';
+  const statusFile = 'support-stats.txt';
+  
+  ns.print('INFO: Support Fleet Manager started.');
+
+  // Initialize the status file
+  await ns.write(statusFile, '0', 'w');
 
   while (true) {
-    // Read the target from the file set by start.js
     const target = ns.read('target.txt');
     if (!target) {
+      ns.print('WARN: No target file found. Waiting...');
       await ns.sleep(checkInterval);
       continue;
     }
 
-    // --- Find all pwned servers (excluding home and purchased) ---
+    // --- Find all servers ---
     const allServers = new Set();
     const q = ['home'];
     const visited = new Set(['home']);
@@ -28,20 +33,36 @@ export async function main(ns) {
         }
     }
 
-    const pwnedServers = Array.from(allServers).filter(s => 
+    // --- Filter for the Support Fleet ---
+    const supportServers = Array.from(allServers).filter(s => 
         ns.hasRootAccess(s) && 
         s !== 'home' && 
-        !s.startsWith('pserv-')
+        !s.startsWith('pserv-') &&
+        s !== target 
     );
+    
+    ns.print(`INFO: Found ${supportServers.length} servers for the Support Fleet.`);
+    await ns.write(statusFile, supportServers.length.toString(), 'w');
 
-    // --- Deploy weaken script to all pwned servers ---
-    for (const server of pwnedServers) {
-      // Kill any old scripts to ensure it's doing the current task
-      ns.killall(server); 
-
+    // --- Deploy weaken script to the Support Fleet ---
+    for (const server of supportServers) {
       const ramCost = ns.getScriptRam(weakenScript);
       const availableRam = ns.getServerMaxRam(server) - ns.getServerUsedRam(server);
       const threads = Math.floor(availableRam / ramCost);
+
+      // ### NEW EFFICIENCY CHECK ###
+      // Check if the server is already running the correct script against the correct target.
+      const runningScripts = ns.ps(server);
+      const isAlreadyWorking = runningScripts.length === 1 && 
+                               runningScripts[0].filename === weakenScript && 
+                               runningScripts[0].args[0] === target;
+
+      if (isAlreadyWorking) {
+        continue; // Skip to the next server if it's already doing its job.
+      }
+
+      // If not working correctly, kill all scripts and redeploy.
+      ns.killall(server); 
 
       if (threads > 0) {
         ns.scp(weakenScript, server, 'home');
@@ -49,6 +70,7 @@ export async function main(ns) {
       }
     }
     
+    ns.print(`SUCCESS: Deployment complete. Sleeping for ${checkInterval / 1000} seconds...`);
     await ns.sleep(checkInterval);
   }
 }
