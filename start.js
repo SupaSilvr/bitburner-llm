@@ -8,7 +8,7 @@ export async function main(ns) {
   ns.tprint('🚀 HWGW Batcher OS Starting...');
   
   // --- CONFIGURATION ---
-  const minRamToBuy = 256; // Minimum RAM to buy/keep.
+  const minRamToBuy = 256; 
   let target = 'n00dles'; 
   const hackPercent = 0.25; 
   const batchSeparation = 200; 
@@ -18,17 +18,17 @@ export async function main(ns) {
   // --- Status Report Configuration ---
   let lastLogTime = 0;
   const logInterval = 60000;
+  // ### NEW: Initialize batch counter ###
+  let completedBatches = 0;
 
   // --- MAIN LOOP ---
   while (true) {
     ns.clearLog();
     
     // --- STEP 1: FLEET MANAGEMENT ---
-    // This module culls any servers below our minimum RAM standard.
     for (const server of ns.getPurchasedServers()) {
       const serverRam = ns.getServerMaxRam(server);
       if (serverRam < minRamToBuy) {
-        // ### THIS LINE HAS BEEN UPDATED ###
         ns.tprint(`🚨 Decommissioning ${server} (${serverRam}GB) - does not meet minimum of ${minRamToBuy}GB.`);
         ns.killall(server);
         ns.deleteServer(server);
@@ -96,6 +96,9 @@ export async function main(ns) {
       deploy(ns, target, 'grow.js', batch.growThreads, landTime - ns.getGrowTime(target));
       deploy(ns, target, 'weaken.js', batch.weaken2Threads, landTime + batchSeparation - ns.getWeakenTime(target));
       
+      // ### NEW: Increment batch counter ###
+      completedBatches++;
+      
       if (Date.now() - lastLogTime > logInterval) {
         lastLogTime = Date.now();
         const network = getNetworkRam(ns);
@@ -110,6 +113,7 @@ export async function main(ns) {
            Phase: BATCHING (HWGW)
            Est. Cycle Time: ~${formatTime(ns.getWeakenTime(target))}
            Batch RAM Cost: ${ns.formatRam(batch.ramCost)}
+           Batches Launched: ${completedBatches}
         `);
       }
       
