@@ -42,3 +42,11 @@ This suite consists of three core scripts that work together:
 ### Running the Suite
 
 To start the entire operation, simply run the master script from your `home` server's terminal:
+
+### Configuration
+
+You can easily configure the behavior of the Hive Mind OS by editing the variables at the top of the  `start.js` file.
+
+- minRamToBuy: The minimum RAM a new server must have to be purchased. This also sets the standard for the culling module—any server with less RAM than this will be deleted.
+- moneyThreshold: Determines when the script switches from grow to hack. A value of 0.75 means the script will grow the server's money until it reaches 75% of its maximum, then it will begin hacking.
+- securityThreshold: Determines when the script switches from weaken to grow. It will weaken the server until its security is minimum_security + securityThreshold.
