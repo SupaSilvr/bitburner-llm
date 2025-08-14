@@ -2,6 +2,10 @@
 
 // --- HELPER FUNCTION (GLOBAL SCOPE) ---
 const formatTime = (ms) => new Date(ms).toISOString().substr(14, 5);
+// ### NEW: Helper to write state to a file ###
+async function updateState(ns, state) {
+  await ns.write('state.txt', JSON.stringify(state), 'w');
+}
 
 export async function main(ns) {
   ns.disableLog('ALL');
@@ -9,34 +13,31 @@ export async function main(ns) {
   
   const upgraderScript = 'upgrade-manager.js';
   const pwnedScript = 'pwned-manager.js';
-  if (!ns.isRunning(upgraderScript, 'home')) {
-    ns.exec(upgraderScript, 'home', 1);
-  }
-  if (!ns.isRunning(pwnedScript, 'home')) {
-    ns.exec(pwnedScript, 'home', 1);
-  }
+  if (!ns.isRunning(upgraderScript, 'home')) ns.exec(upgraderScript, 'home', 1);
+  if (!ns.isRunning(pwnedScript, 'home')) ns.exec(pwnedScript, 'home', 1);
 
-  // --- CONFIGURATION ---
+  // --- CONFIGURATION & STATE ---
   const minRamToBuy = 256;
   const hackPercent = 0.25; 
   const batchSeparation = 200; 
   const prep_moneyThreshold = 0.90;
   const prep_securityThreshold = 5;
-
-  // --- Status Report Configuration ---
+  
   let lastLogTime = 0;
   const logInterval = 60000;
   let completedBatches = 0;
   let bottleneck = 'Analyzing...';
   let target = 'n00dles'; 
   let currentPhase = 'Initializing';
-  await ns.write('target.txt', target, 'w');
+  
+  // Initialize state files
+  await updateState(ns, { target: target, phase: currentPhase });
 
   // --- MAIN LOOP ---
   while (true) {
     ns.clearLog();
     
-    // --- STEP 1: Fleet & Progression Management (No Changes) ---
+    // --- Fleet Management & Server Acquisition ---
     for (const server of ns.getPurchasedServers()) {
       const serverRam = ns.getServerMaxRam(server);
       if (serverRam < minRamToBuy) {
@@ -60,30 +61,31 @@ export async function main(ns) {
       }
     }
 
-    // --- STEP 2: DYNAMIC TARGET SELECTION (No Changes) ---
+    // --- DYNAMIC TARGET SELECTION ---
     const newTarget = findBestTarget(ns);
     if (newTarget && newTarget !== target) {
       ns.tprint(`🎯 New optimal target identified: ${newTarget}`);
       target = newTarget;
-      await ns.write('target.txt', target, 'w');
+      await updateState(ns, { target: target, phase: 'Analyzing' });
     }
 
-    // ### NEW LOGIC: STEP 3: PHASE DETERMINATION ###
-    // Decide what to do before reporting and acting.
+    // --- PHASE DETERMINATION & STATE BROADCASTING ---
     const maxMoney = ns.getServerMaxMoney(target);
     const minSec = ns.getServerMinSecurityLevel(target);
     if (ns.getServerSecurityLevel(target) > minSec + prep_securityThreshold) {
       bottleneck = 'RAM (for target prep)';
       currentPhase = 'Weakening';
+      await updateState(ns, { target: target, phase: 'PREPPING' });
     } else if (ns.getServerMoneyAvailable(target) < maxMoney * prep_moneyThreshold) {
       bottleneck = 'RAM (for target prep)';
       currentPhase = 'Growing';
+      await updateState(ns, { target: target, phase: 'PREPPING' });
     } else {
       bottleneck = 'Network Throughput (ideal)';
       currentPhase = 'Hacking (Batching)';
     }
 
-    // --- STEP 4: SPACERADIO TRANSMISSION (Now always accurate) ---
+    // --- SPACERADIO TRANSMISSION ---
     if (Date.now() - lastLogTime > logInterval) {
         lastLogTime = Date.now();
         const network = getNetworkRam(ns);
@@ -105,8 +107,7 @@ export async function main(ns) {
         `);
     }
 
-    // ### NEW LOGIC: STEP 5: ACTION EXECUTION ###
-    // Execute the action that was decided in Step 3.
+    // --- ACTION EXECUTION ---
     if (currentPhase === 'Weakening') {
       await runPrep(ns, target, 'weaken.js');
       continue;
@@ -119,23 +120,23 @@ export async function main(ns) {
       const batch = calculateBatch(ns, target, hackPercent);
       if (batch.ramCost > getNetworkRam(ns).total) {
         bottleneck = `RAM (for initial batch)`;
-        ns.print(`ERROR: Not enough RAM for a single batch. Need ${ns.formatRam(batch.ramCost)}. Waiting...`);
+        await updateState(ns, { target: target, phase: 'STALLED' });
+        ns.print(`ERROR: Not enough RAM for a single batch. Waiting...`);
         await ns.sleep(30000);
         continue;
       }
-      // This is now an inner loop for continuous batching
-      while (currentPhase === 'Hacking (Batching)') {
-        // Re-check conditions to see if we need to break out of batching
+      
+      let batching = true;
+      while (batching) {
+        await updateState(ns, { target: target, phase: 'BATCHING' });
         if (ns.getServerSecurityLevel(target) > minSec + prep_securityThreshold || ns.getServerMoneyAvailable(target) < maxMoney * prep_moneyThreshold) {
-          ns.print(`WARN: Target ${target} de-synced. Breaking to re-prep.`);
-          break; // Exit inner loop
+          batching = false; 
+          continue;
         }
         if (batch.ramCost > (getNetworkRam(ns).total - getNetworkRam(ns).used)) {
-          bottleneck = 'RAM (for concurrent batches)';
           await ns.sleep(100); 
-          continue; // Wait for RAM in inner loop
+          continue;
         }
-        
         const weakenTime = ns.getWeakenTime(target);
         const landTime = Date.now() + weakenTime + (2 * batchSeparation);
         deploy(ns, target, 'hack.js', batch.hackThreads, landTime - (2 * batchSeparation) - ns.getHackTime(target));
