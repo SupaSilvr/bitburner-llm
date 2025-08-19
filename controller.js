@@ -8,7 +8,7 @@ async function updateState(ns, state) {
 
 export async function main(ns) {
   ns.disableLog('ALL');
-  // The main startup tprint is now in start.js
+  ns.tprint('🚀 HWGW Batcher OS Starting...');
   
   const upgraderScript = 'upgrade-manager.js';
   const pwnedScript = 'pwned-manager.js';
@@ -35,31 +35,53 @@ export async function main(ns) {
   while (true) {
     ns.clearLog();
     
-    // --- Fleet Management & Server Acquisition ---
-    for (const server of ns.getPurchasedServers()) {
-      const serverRam = ns.getServerMaxRam(server);
-      if (serverRam < minRamToBuy) {
-        ns.tprint(`🚨 Decommissioning ${server} (${serverRam}GB) - does not meet minimum of ${minRamToBuy}GB.`);
-        ns.killall(server);
-        ns.deleteServer(server);
-      }
-    }
+    // --- STEP 1: FLEET MANAGEMENT ---
     const purchasedServers = ns.getPurchasedServers();
+    
+    // -- Acquire new servers until the fleet is full --
     if (purchasedServers.length < ns.getPurchasedServerLimit()) {
       bottleneck = `Cash (for pserv-${purchasedServers.length})`;
       const currentMoney = ns.getServerMoneyAvailable('home');
       for (let ram = Math.pow(2, 20); ram >= minRamToBuy; ram /= 2) {
-        if (currentMoney > ns.getPurchasedServerCost(ram)) {
+        const purchaseCost = ns.getPurchasedServerCost(ram);
+        if (currentMoney > purchaseCost) {
           const hostname = `pserv-${purchasedServers.length}`; 
           ns.purchaseServer(hostname, ram);
-          ns.tprint(`✅ FLEET EXPANDED: Acquired new server '${hostname}' with ${ram}GB RAM.`);
+          ns.tprint(`✅ FLEET EXPANDED: Acquired new server '${hostname}' with ${ram}GB RAM for ${ns.formatNumber(purchaseCost)}.`);
           bottleneck = 'None';
           break;
         }
       }
+    } 
+    // -- If fleet is full, start upgrading the weakest server --
+    else {
+        let weakestServer = purchasedServers[0] || null;
+        let minRam = weakestServer ? ns.getServerMaxRam(weakestServer) : 0;
+
+        if (weakestServer) {
+            for (const server of purchasedServers) {
+                const currentRam = ns.getServerMaxRam(server);
+                if (currentRam < minRam) {
+                    minRam = currentRam;
+                    weakestServer = server;
+                }
+            }
+        }
+
+        const nextRamTier = minRam * 2;
+        if (weakestServer && nextRamTier <= ns.getPurchasedServerMaxRam()) {
+            const upgradeCost = ns.getPurchasedServerCost(nextRamTier);
+            bottleneck = `Cash (for ${weakestServer} upgrade to ${ns.formatRam(nextRamTier)})`;
+            if (ns.getServerMoneyAvailable('home') > upgradeCost) {
+                ns.killall(weakestServer);
+                ns.deleteServer(weakestServer);
+                ns.purchaseServer(weakestServer, nextRamTier);
+                ns.tprint(`✅ FLEET UPGRADE: Replaced ${weakestServer} with a new ${ns.formatRam(nextRamTier)} server for ${ns.formatNumber(upgradeCost)}.`);
+            }
+        }
     }
 
-    // --- DYNAMIC TARGET SELECTION ---
+    // --- STEP 2: DYNAMIC TARGET SELECTION ---
     const newTarget = findBestTarget(ns);
     if (newTarget && newTarget !== target) {
       ns.tprint(`🎯 New optimal target identified: ${newTarget}`);
@@ -67,7 +89,7 @@ export async function main(ns) {
       await updateState(ns, { target: target, phase: 'Analyzing' });
     }
 
-    // --- PHASE DETERMINATION & STATE BROADCASTING ---
+    // --- STEP 3: PHASE DETERMINATION & STATE BROADCASTING ---
     const maxMoney = ns.getServerMaxMoney(target);
     const minSec = ns.getServerMinSecurityLevel(target);
     if (ns.getServerSecurityLevel(target) > minSec + prep_securityThreshold) {
@@ -83,7 +105,7 @@ export async function main(ns) {
       currentPhase = 'Hacking (Batching)';
     }
 
-    // --- SPACERADIO TRANSMISSION ---
+    // --- STEP 4: SPACERADIO TRANSMISSION ---
     if (Date.now() - lastLogTime > logInterval) {
         lastLogTime = Date.now();
         const network = getNetworkRam(ns);
@@ -105,7 +127,7 @@ export async function main(ns) {
         `);
     }
 
-    // --- ACTION EXECUTION ---
+    // --- STEP 5: ACTION EXECUTION ---
     if (currentPhase === 'Weakening') {
       await runPrep(ns, target, 'weaken.js');
       continue;
@@ -128,10 +150,12 @@ export async function main(ns) {
       while (batching) {
         await updateState(ns, { target: target, phase: 'BATCHING' });
         if (ns.getServerSecurityLevel(target) > minSec + prep_securityThreshold || ns.getServerMoneyAvailable(target) < maxMoney * prep_moneyThreshold) {
+          ns.print(`WARN: Target ${target} de-synced. Breaking to re-prep.`);
           batching = false; 
           continue;
         }
         if (batch.ramCost > (getNetworkRam(ns).total - getNetworkRam(ns).used)) {
+          bottleneck = 'RAM (for concurrent batches)';
           await ns.sleep(100); 
           continue;
         }
